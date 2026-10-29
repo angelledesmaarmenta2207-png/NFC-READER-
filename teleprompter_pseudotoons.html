@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Teleprompter Pseudo Toons</title>
+<style>
+:root{--bg:#0e0e12;--fg:#f4f4f6;--dim:#5b5b68;--acc:#ffe25a;--red:#ff5c5c}
+*{box-sizing:border-box}html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);font-family:system-ui,Segoe UI,Roboto,sans-serif}
+#bar{position:fixed;top:0;left:0;right:0;z-index:5;background:#17171dee;backdrop-filter:blur(6px);padding:8px 10px;display:flex;flex-wrap:wrap;gap:8px;align-items:center;border-bottom:1px solid #2a2a33}
+#bar label{font-size:12px;color:#aaa;display:flex;align-items:center;gap:5px}
+select,button,input[type=number]{background:#25252e;color:var(--fg);border:1px solid #3a3a46;border-radius:8px;padding:8px 10px;font-size:14px}
+button{cursor:pointer}button.rec{background:var(--red);border-color:var(--red);color:#fff;font-weight:700}button.go{background:var(--acc);color:#222;border-color:var(--acc);font-weight:700}
+input[type=range]{width:110px}
+#meter{width:70px;height:10px;background:#25252e;border-radius:6px;overflow:hidden}#meter i{display:block;height:100%;width:0;background:#5be08a}
+#stage{position:fixed;inset:0;overflow:hidden}
+#scroller{position:absolute;inset:0;overflow-y:scroll;scrollbar-width:none;padding-top:46vh;padding-bottom:70vh}
+#scroller::-webkit-scrollbar{display:none}
+#text{max-width:900px;margin:0 auto;padding:0 6vw}
+.sec{margin:0 0 70px;opacity:.35;transition:opacity .25s}.sec.on{opacity:1}
+.sec h4{margin:0 0 10px;font-size:14px;letter-spacing:.12em;color:var(--acc);text-transform:uppercase;font-weight:700}
+.sec p{margin:0;font-size:var(--fs,44px);line-height:1.42;font-weight:600}
+#line{position:fixed;left:0;right:0;top:var(--ly,38%);height:0;border-top:2px dashed #ffe25a66;z-index:3;pointer-events:none}
+#line::before{content:"▶";position:absolute;left:6px;top:-13px;color:var(--acc);font-size:20px}
+#hud{position:fixed;right:10px;bottom:10px;z-index:6;display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:flex-end}
+#timer{font:700 18px ui-monospace,monospace;background:#000a;padding:6px 10px;border-radius:8px}
+#pause{position:fixed;inset:0;z-index:4;display:none;align-items:center;justify-content:center;background:#0e0e12cc;pointer-events:none}
+#pause b{font-size:9vw;color:var(--acc)}#pause span{display:block;font-size:4vw;color:#ccc;text-align:center}
+#count{position:fixed;inset:0;z-index:8;display:none;align-items:center;justify-content:center;font-size:30vw;font-weight:800;background:#000b}
+#done{position:fixed;inset:0;z-index:9;display:none;background:#0e0e12f2;padding:76px 16px 16px;overflow:auto}
+#done .box{max-width:620px;margin:0 auto;display:grid;gap:12px}
+#done audio{width:100%}#done .row{display:flex;gap:8px;flex-wrap:wrap}
+.note{color:#aaa;font-size:13px;line-height:1.4}
+textarea{width:100%;height:36vh;background:#17171d;color:var(--fg);border:1px solid #3a3a46;border-radius:8px;padding:10px;font-size:15px}
+#custom{position:fixed;inset:0;z-index:9;display:none;background:#0e0e12f2;padding:76px 16px 16px}
+.mirror #text{transform:scaleX(-1)}
+</style></head><body>
+<div id="bar">
+ <select id="ep"></select>
+ <button id="bGo" class="rec">● Grabar</button>
+ <button id="bPause">⏯ Pausa</button>
+ <button id="bStop">■ Terminar</button>
+ <label>Velocidad <input id="spd" type="range" min="10" max="220" value="70"><b id="spdv">70</b></label>
+ <label>Letra <input id="fs" type="range" min="24" max="80" value="44"></label>
+ <label>Pausa entre secciones <input id="gap" type="number" min="0" max="5" step=".5" value="1.5" style="width:64px"> s</label>
+ <label><input id="rehearse" type="checkbox"> Solo ensayar</label>
+ <label><input id="mirror" type="checkbox"> Espejo</label>
+ <button id="bCustom">Pegar guion</button>
+ <div id="meter" title="Nivel del micrófono"><i></i></div>
+</div>
+<div id="stage"><div id="line"></div><div id="scroller"><div id="text"></div></div></div>
+<div id="hud"><span id="timer">00:00</span></div>
+<div id="pause"><div><b>PAUSA</b><span>respira… la siguiente sección empieza sola</span></div></div>
+<div id="count"></div>
+<div id="custom"><div class="box" style="max-width:700px;margin:0 auto;display:grid;gap:10px">
+ <div class="note">Pega tu guion. Separa las secciones con una línea en blanco; la primera línea de cada bloque puede ser el título si empieza con #.</div>
+ <textarea id="ctext" placeholder="# Sección 1&#10;Texto…&#10;&#10;# Sección 2&#10;Texto…"></textarea>
+ <div class="row" style="display:flex;gap:8px"><button class="go" id="cok">Usar este guion</button><button id="ccancel">Cancelar</button></div></div></div>
+<div id="done"><div class="box">
+ <h2 style="margin:0">Grabación lista</h2><audio id="player" controls></audio>
+ <div class="row"><button class="go" id="dMp3">Descargar MP3</button><button id="dWav">Descargar WAV</button><button id="dBack">Volver</button></div>
+ <div class="note" id="msg"></div></div></div>
+<script>
+const EPISODES = [{"name": "#1 Infonavit · 8 etapas de comprar casa", "secs": [{"title": "1/10 · COMPRAR CASA — con Infonavit en México", "text": "¿Quieres comprar una casa en México con Infonavit? Perfecto. Te explico las etapas del proceso. Son ocho. Y ninguna incluye una casa."}, {"title": "2/10 · ETAPA 1 — LA ILUSIÓN", "text": "Etapa uno: la ilusión. Trabajas formal, cotizas, y piensas: con mi Infonavit me alcanza. Según la Sociedad Hipotecaria Federal, la casa promedio ya cuesta más de dos millones de pesos. Casi nueve por ciento más que hace un año."}, {"title": "3/10 · ETAPA 2 — LA PRECALIFICACIÓN", "text": "Etapa dos: la precalificación. Entras a Mi Cuenta Infonavit y una calculadora decide cuánto vales. Piden relación laboral vigente, Afore, biométricos y permiso para checar tu Buró. Y tu monto depende también del comportamiento fiscal de tu patrón. O sea: tu casa depende del contador de tu jefe."}, {"title": "4/10 · ETAPA 3 — EL RESULTADO", "text": "Etapa tres: el resultado. Con un sueldo de diez mil pesos, el simulador te presta unos seiscientos veinte mil, a treinta años. Mensualidad: casi tres mil pesos. Felicidades, ya tienes un tercio de la casa promedio. Un tercio es la sala. O el baño."}, {"title": "5/10 · ETAPA 4 — EL CURSO", "text": "Etapa cuatro: el curso obligatorio: Saber más para decidir mejor. Te enseñan a decidir mejor cuando ya casi no hay nada que decidir."}, {"title": "6/10 · ETAPA 5 — BUSCAR CASA", "text": "Etapa cinco: buscar casa. Para pagar la casa promedio a veinte años necesitas ganar unos ochenta y tres mil pesos al mes. Solo alrededor del dos por ciento de los trabajadores formales lo logra. Casi siete de cada diez ganan hasta dos salarios mínimos. Y en Ciudad de México, sesenta metros rondan los tres millones y medio."}, {"title": "7/10 · ETAPA 6 — AVALÚO Y EXPEDIENTE", "text": "Etapa seis: avalúo y expediente. Un perito certifica oficialmente lo que ya sabías: que está cara. Tú juntas papeles, él pone el sello, y la casa sigue ahí. Esperando. Como tú."}, {"title": "8/10 · ETAPA 7 — NOTARIO Y FIRMA", "text": "Etapa siete: notario y firma. Eliges notario, te dan una constancia de crédito con fecha límite, y firmas. Si ganas menos de diez mil pesos al mes, ni pagas los gastos de titulación. Premio de consolación: papeleo gratis."}, {"title": "9/10 · ETAPA 8 — PAGAR", "text": "Etapa ocho: pagar. Tasa fija, entre tres punto sesenta y nueve y diez punto cuarenta y cinco por ciento, según tu sueldo. Hasta treinta años. Pero ojo: tu edad más el plazo no puede pasar de setenta si eres hombre, ni de setenta y cinco si eres mujer. O sea: el sistema calcula cuándo te vas a morir, para que alcances a terminar de pagar. Por poquito."}, {"title": "10/10 · RESUMEN — y etapa extra", "text": "Resumen: trabajas treinta años para pagar una casa que ya costaba dos millones cuando empezaste. Si no te alcanza, tranquilo: queda la etapa nueve. Rentar. Esto fue Pseudo Toons."}]}, {"name": "#2 México y el Mundial · 8 etapas del futbolista", "secs": [{"title": "1/10 · MÉXICO Y EL MUNDIAL — las 8 etapas del futbolista", "text": "¿Por qué México nunca va a ganar un Mundial? Para explicarlo, te cuento las ocho etapas de la vida de un futbolista mexicano. Y en cada una, un problema real, con fuente. Ninguna es el árbitro."}, {"title": "2/10 · ETAPA 1 — EL SUEÑO", "text": "Etapa uno: el sueño. Un niño con un balón, una cancha de tierra y una promesa: algún día jugaré en el Mundial. Spoiler: el sueño es lo único que no tiene multipropiedad."}, {"title": "3/10 · ETAPA 2 — EL DEBUT", "text": "Etapa dos: el debut. Para que los jóvenes jueguen, la Liga MX inventó la regla de menores: los clubes deben darles minutos. Medio Tiempo la calificó como una apuesta poco efectiva hasta el momento. O sea, hay que obligar a los equipos a darle una oportunidad a los de casa. Muy confiables."}, {"title": "4/10 · ETAPA 3 — EL DUEÑO", "text": "Etapa tres: el dueño. Varios equipos de la liga comparten dueño o grupo. La prensa especializada lo llama un mal normalizado, y Javier Tebas, presidente de LaLiga, dijo que no permitiría que estuvieran en la misma división. Imagina un partido donde el dueño de los dos equipos mira desde el palco. Gane quien gane, gana él."}, {"title": "5/10 · ETAPA 4 — LA COMODIDAD", "text": "Etapa cuatro: la comodidad. Desde la temporada dos mil veintiséis, veintisiete, desaparecen el ascenso y el descenso, por acuerdo del Comité Ejecutivo de la Federación. Y se acabó la multa al último lugar, que iba de treinta y tres a ochenta millones de pesos. Si ser el peor ya no duele, ¿para qué mejorar?"}, {"title": "6/10 · ETAPA 5 — LA TENTACIÓN", "text": "Etapa cinco: la tentación. En febrero de dos mil veinticinco, la Federación suspendió a siete jugadores de Real Apodaca y Correcaminos por presunto amaño de partidos ligado a apuestas ilegales. Cincuenta y siete años de castigo en total. Se filtró un video donde discuten cómo manipular un partido. El portero de Apodaca dijo que nunca recibió dinero. Al menos ahí el marcador sí estaba planeado."}, {"title": "7/10 · ETAPA 6 — LA PROTESTA", "text": "Etapa seis: la protesta. En la liga de abajo, quien quiera subir tendrá que pagar una fuerte cantidad por comprar su lugar, según La Razón. El presidente de Atlante dijo que su club recuperó la plaza comprando la franquicia del Mazatlán. Y en la primera jornada, veintidós jugadores de Mineros y Correcaminos protestaron: sesenta segundos sin jugar. Hasta el futbol entiende lo que es un paro."}, {"title": "8/10 · ETAPA 7 — LA FEDERACIÓN", "text": "Etapa siete: la Federación. En dos mil veinticinco, medios reportaron que funcionarios del INAI habrían pedido entradas del Mundial a la Federación a cambio de reducir multas. El INAI deslindó a esos funcionarios. Presuntamente, claro. Pero que hasta el que multa quiera boleto dice cómo se ve el futbol: un negocio con asientos."}, {"title": "9/10 · ETAPA 8 — EL MUNDIAL", "text": "Etapa ocho: el Mundial. Dos mil veintiséis, en casa, en el Azteca. Tres victorias en la fase de grupos. Y en octavos, Inglaterra nos eliminó el cinco de julio. Noveno lugar: según El Imparcial, el peor resultado de México como anfitrión. En mil novecientos setenta y en ochenta y seis llegamos a cuartos. El sueño del niño del principio: octavos."}, {"title": "10/10 · RESUMEN — y etapa extra", "text": "Resumen: un campeonato no se gana con boletos, dueños repetidos y torneos sin consecuencias. Y la etapa nueve: ya viene dos mil treinta. Según reportes de abril, Rafa Márquez quedó firmado como técnico rumbo ahí. Cuatro años para hacerlo distinto, con el mismo sistema. Esto fue Pseudo Toons."}]}];
+const $=id=>document.getElementById(id);
+let secs=[], cur=0, scroller=$('scroller'), textEl=$('text');
+let playing=false, pausing=0, recording=false, rec=null, chunks=[], stream=null, ctx=null, an=null, t0=0, accT=0, lastTick=0, paused=false, pausedIdx=-1, blob=null, scrollPos=0;
+
+function load(list){secs=list; textEl.innerHTML=''; list.forEach((s,i)=>{const d=document.createElement('div');d.className='sec';d.innerHTML='<h4></h4><p></p>';d.querySelector('h4').textContent=s.title;d.querySelector('p').textContent=s.text;textEl.appendChild(d)});scroller.scrollTop=0;scrollPos=0;pausedIdx=-1;mark()}
+const ep=$('ep');EPISODES.forEach((e,i)=>ep.add(new Option(e.name,i)));ep.onchange=()=>{load(EPISODES[ep.value].secs)};load(EPISODES[0].secs);
+function ly(){return innerHeight*parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--ly')||38)/100}
+function mark(){const y=scroller.scrollTop+ly()+innerHeight*0; // nota: padding-top compensa
+ [...textEl.children].forEach((d,i)=>{const top=d.offsetTop,bot=top+d.offsetHeight;d.classList.toggle('on',y>=top-30&&y<=bot+30)})}
+$('fs').oninput=e=>document.documentElement.style.setProperty('--fs',e.target.value+'px');
+$('spd').oninput=e=>$('spdv').textContent=e.target.value;
+$('mirror').onchange=e=>document.body.classList.toggle('mirror',e.target.checked);
+function fmt(s){s=Math.floor(s);return String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0')}
+
+// --- desplazamiento
+function tick(ts){
+ if(!lastTick)lastTick=ts;const dt=(ts-lastTick)/1000;lastTick=ts;
+ if(playing){accT+=dt;$('timer').textContent=fmt(accT)+(recording?' ●':'');
+  if(pausing>0){pausing-=dt;$('pause').style.display='flex';if(pausing<=0){pausing=0;$('pause').style.display='none'}}
+  else if(!paused){
+   scrollPos+=parseFloat($('spd').value)*dt;scroller.scrollTop=scrollPos;
+   const y=scroller.scrollTop+ly();
+   for(let i=0;i<textEl.children.length;i++){const d=textEl.children[i],bot=d.offsetTop+d.offsetHeight;
+     if(i>pausedIdx&&y>=bot-10){pausedIdx=i;if(i<textEl.children.length-1){if(parseFloat($('gap').value)>0)pausing=parseFloat($('gap').value)}else{paused=true;setTimeout(finish,1200)}break}}
+  }}
+ mark();
+ if(an){const a=new Uint8Array(an.fftSize);an.getByteTimeDomainData(a);let m=0;for(const v of a)m=Math.max(m,Math.abs(v-128));$('meter').firstElementChild.style.width=Math.min(100,m/90*100)+'%'}
+ requestAnimationFrame(tick)}
+requestAnimationFrame(tick);
+
+// --- grabación
+async function startMic(){
+ if(stream)return;
+ stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:false,noiseSuppression:false,autoGainControl:false,channelCount:1}});
+ ctx=new (window.AudioContext||window.webkitAudioContext)();const src=ctx.createMediaStreamSource(stream);an=ctx.createAnalyser();an.fftSize=1024;src.connect(an);}
+async function countdown(){const c=$('count');c.style.display='flex';for(let n=3;n>0;n--){c.textContent=n;await new Promise(r=>setTimeout(r,1000))}c.style.display='none'}
+$('bGo').onclick=async()=>{
+ if(playing)return;
+ try{ if(!$('rehearse').checked){await startMic()} }catch(e){alert('No pude abrir el micrófono: '+e.message+'\nPermite el micrófono para esta página (en el celular suele requerir abrirla desde https o desde el navegador).');return}
+ load(secs);await countdown();
+ if(!$('rehearse').checked){chunks=[];const mt=['audio/webm;codecs=opus','audio/mp4','audio/webm'].find(t=>window.MediaRecorder&&MediaRecorder.isTypeSupported(t));
+  rec=new MediaRecorder(stream,mt?{mimeType:mt}:{});rec.ondataavailable=e=>e.data.size&&chunks.push(e.data);rec.onstop=onRecStop;rec.start(500);recording=true}
+ accT=0;playing=true;paused=false;pausing=0;lastTick=0};
+$('bPause').onclick=()=>{if(!playing)return;paused=!paused;if(rec){paused?rec.pause():rec.resume()}$('pause').style.display=paused?'flex':'none'};
+$('bStop').onclick=()=>finish();
+addEventListener('keydown',e=>{if(e.target.tagName==='TEXTAREA'||e.target.tagName==='INPUT'&&e.target.type==='number')return;
+ if(e.code==='Space'){e.preventDefault();$('bPause').click()}
+ if(e.code==='ArrowUp'){$('spd').value=+$('spd').value+5;$('spd').oninput({target:$('spd')})}
+ if(e.code==='ArrowDown'){$('spd').value=+$('spd').value-5;$('spd').oninput({target:$('spd')})}});
+function finish(){if(!playing)return;playing=false;$('pause').style.display='none';if(rec&&rec.state!=='inactive'){recording=false;rec.stop()}else if(!rec){$('timer').textContent='00:00'}}
+async function onRecStop(){blob=new Blob(chunks,{type:rec.mimeType||'audio/webm'});$('player').src=URL.createObjectURL(blob);$('msg').textContent='Escúchala. Si la voz se oye bien y hay silencios de ~1 s entre secciones, descarga el MP3.';$('done').style.display='block'}
+$('dBack').onclick=()=>$('done').style.display='none';
+
+// --- exportar
+async function decode(){const buf=await blob.arrayBuffer();const c=new (window.AudioContext||window.webkitAudioContext)();const a=await c.decodeAudioData(buf);c.close();return a}
+function dl(b,name){const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download=name;document.body.appendChild(a);a.click();a.remove()}
+function stamp(){const d=new Date();return d.toISOString().slice(0,16).replace(/[-:T]/g,'')}
+$('dWav').onclick=async()=>{const a=await decode();dl(wav(a),'pseudotoons_'+stamp()+'.wav')};
+function mono(a){const n=a.length,o=new Float32Array(n),ch=a.numberOfChannels;for(let c=0;c<ch;c++){const d=a.getChannelData(c);for(let i=0;i<n;i++)o[i]+=d[i]/ch}return o}
+function wav(a){const f=mono(a),sr=a.sampleRate,b=new DataView(new ArrayBuffer(44+f.length*2));const w=(o,s)=>[...s].forEach((c,i)=>b.setUint8(o+i,c.charCodeAt(0)));
+ w(0,'RIFF');b.setUint32(4,36+f.length*2,true);w(8,'WAVEfmt ');b.setUint32(16,16,true);b.setUint16(20,1,true);b.setUint16(22,1,true);b.setUint32(24,sr,true);b.setUint32(28,sr*2,true);b.setUint16(32,2,true);b.setUint16(34,16,true);w(36,'data');b.setUint32(40,f.length*2,true);
+ for(let i=0;i<f.length;i++)b.setInt16(44+i*2,Math.max(-1,Math.min(1,f[i]))*32767,true);return new Blob([b],{type:'audio/wav'})}
+function loadScript(u){return new Promise((ok,no)=>{const s=document.createElement('script');s.src=u;s.onload=ok;s.onerror=no;document.head.appendChild(s)})}
+async function lame(){if(window.lamejs)return;const U=['https://cdn.jsdelivr.net/npm/lamejs@1.2.1/lame.all.js','https://cdnjs.cloudflare.com/ajax/libs/lamejs/1.2.1/lame.min.js','https://unpkg.com/lamejs@1.2.1/lame.all.js'];for(const u of U){try{await loadScript(u);if(window.lamejs)return}catch(e){}}throw new Error('sin lamejs')}
+$('dMp3').onclick=async()=>{$('msg').textContent='Convirtiendo a MP3…';
+ try{await lame();const a=await decode(),f=mono(a),sr=a.sampleRate,enc=new lamejs.Mp3Encoder(1,sr,128),out=[];const pcm=new Int16Array(f.length);for(let i=0;i<f.length;i++)pcm[i]=Math.max(-1,Math.min(1,f[i]))*32767;
+  for(let i=0;i<pcm.length;i+=1152){const r=enc.encodeBuffer(pcm.subarray(i,i+1152));if(r.length)out.push(new Uint8Array(r))}const e=enc.flush();if(e.length)out.push(new Uint8Array(e));
+  dl(new Blob(out,{type:'audio/mpeg'}),'pseudotoons_'+stamp()+'.mp3');$('msg').textContent='MP3 descargado.'}
+ catch(e){$('msg').textContent='No pude cargar el convertidor MP3 (necesita internet la primera vez). Descargué el WAV, que sirve igual para el video.';dl(wav(await decode()),'pseudotoons_'+stamp()+'.wav')}};
+
+// --- guion propio
+$('bCustom').onclick=()=>$('custom').style.display='block';$('ccancel').onclick=()=>$('custom').style.display='none';
+$('cok').onclick=()=>{const blocks=$('ctext').value.split(/\n\s*\n/).map(s=>s.trim()).filter(Boolean);if(!blocks.length)return;
+ const l=blocks.map((b,i)=>{const ls=b.split('\n');let t='Sección '+(i+1);if(ls[0].startsWith('#')){t=ls.shift().replace(/^#+\s*/,'')}return{title:t,text:ls.join(' ')}});
+ EPISODES.push({name:'Guion propio',secs:l});ep.add(new Option('Guion propio',EPISODES.length-1));ep.value=EPISODES.length-1;load(l);$('custom').style.display='none'};
+</script></body></html>
